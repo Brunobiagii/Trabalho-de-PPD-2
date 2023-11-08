@@ -13,9 +13,16 @@ import (
 type MasterNode struct {
 	superNodeList []string
 }
+type ServerNode struct {
+	serverNodeList []string
+}
 
 func (m *MasterNode) registerSupernode(superNodeID string) {
 	m.superNodeList = append(m.superNodeList, superNodeID)
+}
+
+func (s *ServerNode) registerServernode(serverNodeID string) {
+	s.serverNodeList = append(s.serverNodeList, serverNodeID)
 }
 
 func configurandoSuperNodo(ctx context.Context, master *MasterNode, superNodeID string) {
@@ -24,6 +31,14 @@ func configurandoSuperNodo(ctx context.Context, master *MasterNode, superNodeID 
 		panic(err)
 	}
 	master.registerSupernode(superNodeID)
+
+}
+func configurandoNodoServidor(ctx context.Context, master *MasterNode, server *ServerNode, serverNodeID string) {
+	serverNode, err := libp2p.New(ctx)
+	if err != nil {
+		panic(err)
+	}
+	master.registerSupernode(serverNodeID)
 
 }
 
