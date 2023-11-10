@@ -3,10 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"sync"
 	"time"
 
-	libp2p "github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p-core/network"
+	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
 )
 
 // Defina as estruturas para o nó mestre e nó servidor
@@ -37,15 +40,15 @@ func (m *MasterNode) registerServernode(serverNodeID string) {
 // Configuração de um super nó
 func configureSuperNode(ctx context.Context, master *MasterNode, superNodeID string) {
 	// Criar um novo super nó
-	superNode, err := libp2p.New(ctx)
+	host, err := libp2p.New(ctx, libp2p.Ping(true))
 	if err != nil {
 		panic(err)
 	}
 
-	fmt.Println("Nó Super iniciado:", superNode.ID())
+	fmt.Println("Nó Super iniciado:", host.ID())
 
 	// Registrar o Super Nó no Mestre
-	master.registerSupernode(superNode.ID().String())
+	master.registerSupernode(host.ID().String())
 
 	// Broadcasting para informar que o registro está finalizado
 	fmt.Println("Broadcast: Registro de Super Nó finalizado")
@@ -56,15 +59,15 @@ func configureSuperNode(ctx context.Context, master *MasterNode, superNodeID str
 // Configuração de um nó servidor
 func configureServerNode(ctx context.Context, master *MasterNode, server *ServerNode, serverNodeID string) {
 	// Criar um novo nó servidor
-	serverNode, err := libp2p.New(ctx)
+	host, err := libp2p.New(ctx, libp2p.Ping(true))
 	if err != nil {
 		panic(err)
 	}
 
-	fmt.Println("Nó Servidor iniciado:", serverNode.ID())
+	fmt.Println("Nó Servidor iniciado:", host.ID())
 
 	// Registrar o Nó Servidor no Mestre
-	master.registerServernode(serverNode.ID().String())
+	master.registerServernode(host.ID().String())
 
 	// Broadcasting para informar que o registro está finalizado
 	fmt.Println("Broadcast: Registro de Nó Servidor finalizado")
@@ -83,24 +86,58 @@ func broadcastRegistration(superNodes []string) {
 // Comunicação entre dois nós
 func communicateBetweenNodes(ctx context.Context, node1, node2 *libp2p.Host) {
 	// Exemplo: node1 envia uma mensagem para node2
-	node1Address := node2.Addrs()[0]
-	stream, err := node1.NewStream(ctx, node1Address.ID, "/rendezvous/1.0.0")
+	node1ID := node1.ID()
+	node2Address := node2.Addrs()[0]
+
+	// Ping para garantir que a conexão está ativa
+	pinger := ping.NewPingService(node1.PeerHost)
+	pingCtx, cancel := context.WithTimeout(ctx, time.Second*5)
+	defer cancel()
+
+	if err := pinger.Ping(pingCtx, node2Address.ID); err != nil {
+		panic(err)
+	}
+
+	stream, err := node1.NewStream(ctx, node2ID, "/rendezvous/1.0.0")
+	if err != nil {
+		panic(err)
+	}
+	defer stream.Close()
+
+	fmt.Println("Enviando dados de", node1ID, "para", node2ID)
+
+	// Lógica para enviar dados pela stream (substitua pelo seu caso de uso)
+	message := []byte("Olá, mundo!")
+	_, err = stream.Write(message)
 	if err != nil {
 		panic(err)
 	}
 
-	//  usar a stream para enviar dados entre os nós
-	// ...
+	// Aguarde a resposta do outro nó
+	go handleIncomingData(stream)
+}
 
-	//fechar a stream quando terminar
-	stream.Close()
+// Função para lidar com dados recebidos do outro nó
+func handleIncomingData(stream network.Stream) {
+	fmt.Println("Aguardando dados do outro nó...")
+
+	// Buffer para armazenar os dados recebidos
+	buffer := make([]byte, 1024)
+
+	// Leitura dos dados da stream
+	n, err := stream.Read(buffer)
+	if err != nil && err != io.EOF {
+		panic(err)
+	}
+
+	receivedData := buffer[:n]
+	fmt.Println("Dados recebidos:", string(receivedData))
 }
 
 func main() {
 	// Configuração do nó mestre
-
 	ctx := context.Background()
-	masterNode, err := libp2p.New(ctx)
+	masterNode, err := libp2p.New(ctx, libp2p.Ping(true))
 	if err != nil {
 		panic(err)
 	}
@@ -123,11 +160,16 @@ func main() {
 	fmt.Println("Broadcast: Registro de Super Nó finalizado")
 	broadcastRegistration(master.superNodeList)
 
-	// 1) Configuração da Rede Super Nó.
-	// ... implementar o registro dos super nós e o broadcast de finalização ...
-
 	// 2) Configuração da rede do nó servidor.
 	// ... implementar o registro dos nós servidores e o broadcast de roteamento ...
+	// Configuração dos nós servidores
+	for i := 0; i < 5; i++ {
+		go configureServerNode(ctx, master, fmt.Sprintf("ServerNode-%d", i))
+	}
+
+	// Broadcasting ao finalizar registros dos nós servidores
+	fmt.Println("Broadcast: Registro de Nó Servidor finalizado")
+	broadcastRegistration(master.superNodeList)
 
 	// 3) Armazenamento dos documentos pdf.
 	// ... implementar a atualização da lista na estrutura de arquivos ...
