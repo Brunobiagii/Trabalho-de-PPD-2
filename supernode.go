@@ -3,56 +3,125 @@ package main
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	libp2p "github.com/libp2p/go-libp2p"
 )
 
-// Implemente os passos do seu sistema P2P aqui
-
+// Defina as estruturas para o nó mestre e nó servidor
 type MasterNode struct {
 	superNodeList []string
-}
-type ServerNode struct {
-	serverNodeList []string
+	mutex         sync.Mutex
 }
 
+type ServerNode struct {
+	serverNodeList []string
+	mutex          sync.Mutex
+}
+
+// Método para registrar um super nó na lista do mestre
 func (m *MasterNode) registerSupernode(superNodeID string) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
 	m.superNodeList = append(m.superNodeList, superNodeID)
 }
 
-func (s *ServerNode) registerServernode(serverNodeID string) {
-	s.serverNodeList = append(s.serverNodeList, serverNodeID)
+// Método para registrar um nó servidor na lista do mestre
+func (m *MasterNode) registerServernode(serverNodeID string) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	m.superNodeList = append(m.superNodeList, serverNodeID)
 }
 
-func configurandoSuperNodo(ctx context.Context, master *MasterNode, superNodeID string) {
+// Configuração de um super nó
+func configureSuperNode(ctx context.Context, master *MasterNode, superNodeID string) {
+	// Criar um novo super nó
 	superNode, err := libp2p.New(ctx)
 	if err != nil {
 		panic(err)
 	}
-	master.registerSupernode(superNodeID)
 
+	fmt.Println("Nó Super iniciado:", superNode.ID())
+
+	// Registrar o Super Nó no Mestre
+	master.registerSupernode(superNode.ID().String())
+
+	// Broadcasting para informar que o registro está finalizado
+	fmt.Println("Broadcast: Registro de Super Nó finalizado")
+	broadcastRegistration(master.superNodeList)
+	// Implementar a lógica de broadcast aqui
 }
-func configurandoNodoServidor(ctx context.Context, master *MasterNode, server *ServerNode, serverNodeID string) {
+
+// Configuração de um nó servidor
+func configureServerNode(ctx context.Context, master *MasterNode, server *ServerNode, serverNodeID string) {
+	// Criar um novo nó servidor
 	serverNode, err := libp2p.New(ctx)
 	if err != nil {
 		panic(err)
 	}
-	master.registerSupernode(serverNodeID)
 
+	fmt.Println("Nó Servidor iniciado:", serverNode.ID())
+
+	// Registrar o Nó Servidor no Mestre
+	master.registerServernode(serverNode.ID().String())
+
+	// Broadcasting para informar que o registro está finalizado
+	fmt.Println("Broadcast: Registro de Nó Servidor finalizado")
+
+	broadcastRegistration(master.superNodeList) // Note que usei superNodeList, você pode ajustar conforme necessário
+	// Implementar a lógica de broadcast aqui
+}
+
+// Função para broadcasting do registro
+func broadcastRegistration(superNodes []string) {
+	// Implementar a lógica de broadcasting aqui
+	// Pode ser usado o protocolo de Rendezvous ou PubSub
+	// Exemplo: Enviar uma mensagem para todos os super nós informando os registros finalizados
+}
+
+// Comunicação entre dois nós
+func communicateBetweenNodes(ctx context.Context, node1, node2 *libp2p.Host) {
+	// Exemplo: node1 envia uma mensagem para node2
+	node1Address := node2.Addrs()[0]
+	stream, err := node1.NewStream(ctx, node1Address.ID, "/rendezvous/1.0.0")
+	if err != nil {
+		panic(err)
+	}
+
+	//  usar a stream para enviar dados entre os nós
+	// ...
+
+	//fechar a stream quando terminar
+	stream.Close()
 }
 
 func main() {
 	// Configuração do nó mestre
+
 	ctx := context.Background()
 	masterNode, err := libp2p.New(ctx)
 	if err != nil {
 		panic(err)
 	}
 
+	// Criação do Mestre
+	master := &MasterNode{}
+
 	fmt.Println("Nó Mestre iniciado:", masterNode.ID())
 
-	// Implemente os passos 1 a 6 conforme mencionado nas especificações do sistema P2P
+	// Implementação dos passos 1 a 6 conforme mencionado nas especificações do sistema P2P
+
+	// 1) Configuração da Rede Super Nó.
+	// ... implementar o registro dos super nós e o broadcast de finalização ...
+	// Configuração dos super nós
+	for i := 0; i < 5; i++ {
+		go configureSuperNode(ctx, master, fmt.Sprintf("SuperNode-%d", i))
+	}
+
+	// Broadcasting ao finalizar registros
+	fmt.Println("Broadcast: Registro de Super Nó finalizado")
+	broadcastRegistration(master.superNodeList)
 
 	// 1) Configuração da Rede Super Nó.
 	// ... implementar o registro dos super nós e o broadcast de finalização ...
@@ -90,5 +159,4 @@ func main() {
 	// ... implementar o algoritmo de 2PC para garantir a consistência do sistema ...
 
 	// ... continuar com a implementação do sistema P2P ...
-
 }
