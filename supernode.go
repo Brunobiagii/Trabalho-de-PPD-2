@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"sync"
 	"time"
 
 	"github.com/libp2p/go-libp2p"
@@ -15,25 +14,20 @@ import (
 // Defina as estruturas para o nó mestre e nó servidor
 type MasterNode struct {
 	superNodeList []string
-	mutex         sync.Mutex
 }
 
 type ServerNode struct {
 	serverNodeList []string
-	mutex          sync.Mutex
+	hashTable      map[string]string // Tabela hash para armazenar relação arquivo-nó
 }
 
 // Método para registrar um super nó na lista do mestre
 func (m *MasterNode) registerSupernode(superNodeID string) {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
 	m.superNodeList = append(m.superNodeList, superNodeID)
 }
 
 // Método para registrar um nó servidor na lista do mestre
 func (m *MasterNode) registerServernode(serverNodeID string) {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
 	m.superNodeList = append(m.superNodeList, serverNodeID)
 }
 
@@ -134,6 +128,12 @@ func handleIncomingData(stream network.Stream) {
 	fmt.Println("Dados recebidos:", string(receivedData))
 }
 
+// Função para procurar nó associado a um arquivo na tabela hash do nó servidor
+func (s *ServerNode) getNodeWithFile(fileName string) (string, bool) {
+	nodeID, found := s.hashTable[fileName]
+	return nodeID, found
+}
+
 func main() {
 	// Configuração do nó mestre
 	ctx := context.Background()
@@ -163,8 +163,11 @@ func main() {
 	// 2) Configuração da rede do nó servidor.
 	// ... implementar o registro dos nós servidores e o broadcast de roteamento ...
 	// Configuração dos nós servidores
+	server := &ServerNode{
+		hashTable: make(map[string]string),
+	}
 	for i := 0; i < 5; i++ {
-		go configureServerNode(ctx, master, fmt.Sprintf("ServerNode-%d", i))
+		go configureServerNode(ctx, master, server, fmt.Sprintf("ServerNode-%d", i))
 	}
 
 	// Broadcasting ao finalizar registros dos nós servidores
