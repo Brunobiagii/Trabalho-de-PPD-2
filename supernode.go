@@ -136,8 +136,7 @@ func (s *ServerNode) getNodeWithFile(fileName string) (string, bool) {
 
 func main() {
 	// Configuração do nó mestre
-	ctx := context.Background()
-	masterNode, err := libp2p.New(ctx, libp2p.Ping(true))
+	masterNode, err := libp2p.New(libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/0"))
 	if err != nil {
 		panic(err)
 	}
