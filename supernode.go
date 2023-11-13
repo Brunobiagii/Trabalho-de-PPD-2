@@ -13,7 +13,7 @@ import (
 
 // Defina as estruturas para o nó mestre e nó servidor
 type MasterNode struct {
-	superNodeList []string
+	superNodeList []*SuperNode
 }
 
 type ServerNode struct {
@@ -21,28 +21,96 @@ type ServerNode struct {
 	hashTable      map[string]string // Tabela hash para armazenar relação arquivo-nó
 }
 
+type SuperNode struct {
+	superNodeID    string
+	serverNodeList []string
+}
+
 // Método para registrar um super nó na lista do mestre
-func (m *MasterNode) registerSupernode(superNodeID string) {
-	m.superNodeList = append(m.superNodeList, superNodeID)
+func (m *MasterNode) registerSupernode(superNode *SuperNode) {
+	m.superNodeList = append(m.superNodeList, superNode)
 }
 
 // Método para registrar um nó servidor na lista do mestre
 func (m *MasterNode) registerServernode(serverNodeID string) {
-	m.superNodeList = append(m.superNodeList, serverNodeID)
+	for _, superNode := range m.superNodeList {
+		superNode.serverNodeList = append(superNode.serverNodeList, serverNodeID)
+	}
+}
+
+// Função para obter a tabela hash de arquivos de um nó servidor (a ser implementada)
+func getServerFiles(nodeID string) map[string]string {
+	// Aqui você deve implementar a lógica para obter a tabela hash de arquivos de um nó
+	// Pode ser uma chamada de função específica para obter essa informação
+	// Por enquanto, retornamos um mapa vazio
+	return make(map[string]string)
+}
+
+// Função para verificar qual nó possui o arquivo procurado
+func checkFileLocation(superNode *SuperNode, fileName string) (string, error) {
+	// Compilar a visão geral da tabela hash de arquivos de todos os nós servidores
+	fileLocations := make(map[string]string)
+	for _, serverNodeID := range superNode.serverNodeList {
+		serverFiles := getServerFiles(serverNodeID)
+		for file, node := range serverFiles {
+			fileLocations[file] = node
+		}
+	}
+
+	// Verificar qual nó possui o arquivo procurado
+	if node, ok := fileLocations[fileName]; ok {
+		return node, nil
+	}
+
+	return "", fmt.Errorf("Arquivo não encontrado: %s", fileName)
+}
+
+// Função de busca de arquivo no super nó
+func searchFile(superNode *SuperNode, fileName string) {
+	node, err := checkFileLocation(superNode, fileName)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	fmt.Printf("O arquivo %s está no nó %s\n", fileName, node)
+}
+
+// Função para broadcasting do registro (a ser implementada)
+func broadcastRegistration(superNodes []*SuperNode) {
+	// Implementar a lógica de broadcasting aqui
+	// Pode ser usado o protocolo de Rendezvous ou PubSub
+	// Exemplo: Enviar uma mensagem para todos os super nós informando os registros finalizados
+	for _, superNode := range superNodes {
+		superNodeFiles := make(map[string]string)
+		for _, serverNodeID := range superNode.serverNodeList {
+			serverFiles := getServerFiles(serverNodeID)
+			for file, node := range serverFiles {
+				superNodeFiles[file] = node
+			}
+		}
+		// Aqui você deve implementar a lógica para enviar superNodeFiles para outros super nós
+		// Pode ser uma chamada de função específica para realizar essa transmissão
+		fmt.Printf("Broadcast de arquivos do Super Nó %s: %v\n", superNode.superNodeID, superNodeFiles)
+	}
 }
 
 // Configuração de um super nó
 func configureSuperNode(ctx context.Context, master *MasterNode, superNodeID string) {
 	// Criar um novo super nó
-	host, err := libp2p.New(ctx, libp2p.Ping(true))
+	host, err := libp2p.New(libp2p.Ping(true))
 	if err != nil {
 		panic(err)
+	}
+
+	superNode := &SuperNode{
+		superNodeID: superNodeID,
 	}
 
 	fmt.Println("Nó Super iniciado:", host.ID())
 
 	// Registrar o Super Nó no Mestre
-	master.registerSupernode(host.ID().String())
+	master.registerSupernode(superNode)
 
 	// Broadcasting para informar que o registro está finalizado
 	fmt.Println("Broadcast: Registro de Super Nó finalizado")
@@ -53,7 +121,7 @@ func configureSuperNode(ctx context.Context, master *MasterNode, superNodeID str
 // Configuração de um nó servidor
 func configureServerNode(ctx context.Context, master *MasterNode, server *ServerNode, serverNodeID string) {
 	// Criar um novo nó servidor
-	host, err := libp2p.New(ctx, libp2p.Ping(true))
+	host, err := libp2p.New(libp2p.Ping(true))
 	if err != nil {
 		panic(err)
 	}
@@ -70,48 +138,28 @@ func configureServerNode(ctx context.Context, master *MasterNode, server *Server
 	// Implementar a lógica de broadcast aqui
 }
 
-// Função para broadcasting do registro
-func broadcastRegistration(superNodes []string) {
-	// Implementar a lógica de broadcasting aqui
-	// Pode ser usado o protocolo de Rendezvous ou PubSub
-	// Exemplo: Enviar uma mensagem para todos os super nós informando os registros finalizados
-}
-
-// Comunicação entre dois nós
-func communicateBetweenNodes(ctx context.Context, node1, node2 *libp2p.Host) {
+// Comunicação entre dois nós (a ser implementada)
+func communicateBetweenNodes(node1, node2 *libp2p.Host) {
 	// Exemplo: node1 envia uma mensagem para node2
 	node1ID := node1.ID()
 	node2Address := node2.Addrs()[0]
 
 	// Ping para garantir que a conexão está ativa
 	pinger := ping.NewPingService(node1.PeerHost)
-	pingCtx, cancel := context.WithTimeout(ctx, time.Second*5)
+	pingCtx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 
 	if err := pinger.Ping(pingCtx, node2Address.ID); err != nil {
 		panic(err)
 	}
 
-	stream, err := node1.NewStream(ctx, node2ID, "/rendezvous/1.0.0")
-	if err != nil {
-		panic(err)
-	}
-	defer stream.Close()
-
-	fmt.Println("Enviando dados de", node1ID, "para", node2ID)
-
-	// Lógica para enviar dados pela stream (substitua pelo seu caso de uso)
-	message := []byte("Olá, mundo!")
-	_, err = stream.Write(message)
-	if err != nil {
-		panic(err)
-	}
-
-	// Aguarde a resposta do outro nó
-	go handleIncomingData(stream)
+	// Aqui você deve implementar a lógica para enviar mensagens entre os nós
+	// Pode ser usado o protocolo de stream para comunicação
+	// Exemplo: node1 cria uma nova stream e envia dados para node2
+	// Implemente de acordo com as necessidades do seu sistema
 }
 
-// Função para lidar com dados recebidos do outro nó
+// Função para lidar com dados recebidos do outro nó (a ser implementada)
 func handleIncomingData(stream network.Stream) {
 	fmt.Println("Aguardando dados do outro nó...")
 
@@ -126,12 +174,6 @@ func handleIncomingData(stream network.Stream) {
 
 	receivedData := buffer[:n]
 	fmt.Println("Dados recebidos:", string(receivedData))
-}
-
-// Função para procurar nó associado a um arquivo na tabela hash do nó servidor
-func (s *ServerNode) getNodeWithFile(fileName string) (string, bool) {
-	nodeID, found := s.hashTable[fileName]
-	return nodeID, found
 }
 
 func main() {
@@ -152,7 +194,7 @@ func main() {
 	// ... implementar o registro dos super nós e o broadcast de finalização ...
 	// Configuração dos super nós
 	for i := 0; i < 5; i++ {
-		go configureSuperNode(ctx, master, fmt.Sprintf("SuperNode-%d", i))
+		go configureSuperNode(context.Background(), master, fmt.Sprintf("SuperNode-%d", i))
 	}
 
 	// Broadcasting ao finalizar registros
@@ -166,7 +208,7 @@ func main() {
 		hashTable: make(map[string]string),
 	}
 	for i := 0; i < 5; i++ {
-		go configureServerNode(ctx, master, server, fmt.Sprintf("ServerNode-%d", i))
+		go configureServerNode(context.Background(), master, server, fmt.Sprintf("ServerNode-%d", i))
 	}
 
 	// Broadcasting ao finalizar registros dos nós servidores
@@ -178,6 +220,8 @@ func main() {
 
 	// 4) Busca pelos documentos.
 	// ... implementar a lógica de busca e envio de documentos ...
+	// Exemplo de busca de arquivo
+	searchFile(master.superNodeList[0], "documento.pdf")
 
 	// 5) Inclusão de novos nós servidores.
 	// ... implementar a lógica para inclusão de novos nós servidores ...
