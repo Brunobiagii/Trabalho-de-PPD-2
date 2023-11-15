@@ -8,6 +8,7 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"sync"
 	//Libp2p
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -26,6 +27,7 @@ type superNode struct{
 
 var superNodes []superNode
 var superNodeID int
+var mutex       sync.Mutex
 
 //Cria um host usando o libp2p com a porta específicada
 func makeHost(port int) host.Host {
@@ -47,12 +49,12 @@ func main() {
 	flag.Parse()
 	superNodeID = 0
 	host := makeHost(*port) //Cria o host
-	log.Printf("use '-d /ip4/127.0.0.1/tcp/%v/p2p/%s' para se conectar a esse host", *port, host.ID())
+	log.Printf("use 'go run superNode.go -d /ip4/127.0.0.1/tcp/%v/p2p/%s' para se conectar a esse host", *port, host.ID())
 	startHost(ctx, host, streamHandler)  //Deixa o host esperando conexão
 	supCadastrados := false
 	for {
 		//Verifica se todos os nós forão cadastrados
-		if len(superNodes) == 2 && !supCadastrados {
+		if len(superNodes) == 3 && !supCadastrados {
 			k := true
 			for i := 0; i < len(superNodes); i++ {
 				if !superNodes[i].registrado {
@@ -64,10 +66,7 @@ func main() {
 			//se foram faz um broadcast
 			if k {
 				fmt.Println("Entrado\n")
-				for i := 0; i < len(superNodes); i++ {
-					superNodes[i].rw.WriteString(fmt.Sprintf("Terminado\n"))
-					superNodes[i].rw.Flush()
-				}
+				broadCast(fmt.Sprintf("Terminado\n"))
 				supCadastrados = true
 			}
 		}
@@ -82,6 +81,7 @@ func startHost(ctx context.Context, host host.Host, streamHandler network.Stream
 //Função que irá ser chamada quando o host for conectado a uma stream
 func streamHandler(stream network.Stream) {
 	var supNodes superNode
+	var id int
 	// Cria uma buffered stream para que ler e escrever sejam não bloqueantes
 	rw := bufio.NewReadWriter(bufio.NewReader(stream), bufio.NewWriter(stream))
 	str, _ := rw.ReadString('\n') //Recebe uma mensagem da stream
@@ -95,10 +95,13 @@ func streamHandler(stream network.Stream) {
 		//fmt.Println(str)
 	}
 	//Retorna o id do super nó
-	rw.WriteString(fmt.Sprintf("ID:%v\n", superNodeID))
+	mutex.Lock()
+	id = superNodeID
+	superNodeID = superNodeID + 1
+	mutex.Unlock()
+	fmt.Println(id, superNodeID)
+	rw.WriteString(fmt.Sprintf("ID:%v\n", id))
 	rw.Flush()
-	id := superNodeID
-	superNodeID += 1
 	str, _ = rw.ReadString('\n') //Recebe uma mensagem da stream
 	fmt.Println(str)
 	//Recebe o ack
@@ -107,6 +110,7 @@ func streamHandler(stream network.Stream) {
 		fmt.Println("ACK recebido\n")
 	}
 	//TODO: adicionar o readStream
+	go readStream(rw)
 }
 
 //Receberá as mensagens da stream
@@ -123,17 +127,30 @@ func readStream(rw *bufio.ReadWriter) {
 			//0 = id, 1 = protocolo, 2 = informação adicional
 			splits := strings.Split(str, ":")
 			id, _ := strconv.Atoi(splits[0])
+			fmt.Println(str, id)
+			fmt.Println(splits[1]=="Roteamento\n")
 			switch splits[1] {
 				//Retorna informação de roteamento dos outros super nós
-			case "Roteamento":
+			case "Roteamento\n":
+				
 				for i := 0; i < len(superNodes); i++ {
 					if i != id {
-						ret = ret + fmt.Sprintf("%v:%s\n", i, superNodes[id].addr)
+						ret = ret + fmt.Sprintf("%v:%s|", i, superNodes[id].addr[:len(superNodes[id].addr)-1])
 					}
 				}
+				ret = ret + "\n"
 				superNodes[id].rw.WriteString(ret)
+				rw.Flush()
+				fmt.Println(id, ret)
 			}
 		}
+	}
+}
+
+func broadCast(msg string) {
+	for i := 0; i < len(superNodes); i++ {
+		superNodes[i].rw.WriteString(msg)
+		superNodes[i].rw.Flush()
 	}
 }
 

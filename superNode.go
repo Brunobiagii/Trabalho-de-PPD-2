@@ -58,23 +58,25 @@ func main() {
 		//Lê a resposta do mestre
 		str, _ := rw.ReadString('\n') 
 		aux := strings.Split(str, ":")
-		ID, err := strconv.Atoi(aux[1])
+		ID, err := strconv.Atoi(aux[1][:len(aux[1])-1])
+		fmt.Println(aux[1], ID)
 		//Devolve o ACK
 		rw.WriteString(fmt.Sprintf("ACK\n"))
 		rw.Flush()
 		//Lê quando estiver finalizado
 		str, _ = rw.ReadString('\n')
-		fmt.Println(str)
 		if str != "\n" {
+			fmt.Println(str)
 			//Pede informação sobre outros nós
 			rw.WriteString(fmt.Sprintf("%v:Roteamento\n", ID))
+			rw.Flush()
 			str1, _ := rw.ReadString('\n')
-			aux = strings.Split(str1, "\n")
-
+			aux = strings.Split(str1, "|")
+			fmt.Println(aux)
 			for _, it := range aux {
 				superNodesAddr = append(superNodesAddr, it)
 			}
-			fmt.Println("Finalizado\n")
+			fmt.Println(superNodesAddr)
 		}
 		select {} //Loop infinito
 	}
