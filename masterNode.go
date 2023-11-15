@@ -6,6 +6,8 @@ import (
 	"flag"
 	"bufio"
 	"log"
+	"strconv"
+	"strings"
 	//Libp2p
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -19,9 +21,11 @@ type superNode struct{
 	addr   string
 	stream network.Stream
 	rw     *bufio.ReadWriter
+	registrado bool
 }
 
 var superNodes []superNode
+var superNodeID int
 
 //Cria um host usando o libp2p com a porta específicada
 func makeHost(port int) host.Host {
@@ -41,12 +45,33 @@ func main() {
 	ctx := context.Background()  //Contexto
 	port := flag.Int("p", 8080, "porta")  //Porta do host
 	flag.Parse()
-
+	superNodeID = 0
 	host := makeHost(*port) //Cria o host
 	log.Printf("use '-d /ip4/127.0.0.1/tcp/%v/p2p/%s' para se conectar a esse host", *port, host.ID())
 	startHost(ctx, host, streamHandler)  //Deixa o host esperando conexão
-
-	select {} //Loop infinito
+	supCadastrados := false
+	for {
+		//Verifica se todos os nós forão cadastrados
+		if len(superNodes) == 2 && !supCadastrados {
+			k := true
+			for i := 0; i < len(superNodes); i++ {
+				if !superNodes[i].registrado {
+					k = false
+				}
+				
+			}
+			fmt.Println("Olhado\n")
+			//se foram faz um broadcast
+			if k {
+				fmt.Println("Entrado\n")
+				for i := 0; i < len(superNodes); i++ {
+					superNodes[i].rw.WriteString(fmt.Sprintf("Terminado\n"))
+					superNodes[i].rw.Flush()
+				}
+				supCadastrados = true
+			}
+		}
+	}
 }
 
 // Inicializa o stream handler do host que irá esperar conexão
@@ -60,14 +85,56 @@ func streamHandler(stream network.Stream) {
 	// Cria uma buffered stream para que ler e escrever sejam não bloqueantes
 	rw := bufio.NewReadWriter(bufio.NewReader(stream), bufio.NewWriter(stream))
 	str, _ := rw.ReadString('\n') //Recebe uma mensagem da stream
+	//Cadastra um novo super nó
 	if str != "\n"{
 		supNodes.addr = str
 		supNodes.stream = stream
 		supNodes.rw = rw
+		supNodes.registrado = false
 		superNodes = append(superNodes, supNodes)
 		//fmt.Println(str)
 	}
-	for i := 0; i < len(superNodes); i++ {
-		fmt.Println(superNodes[i].addr)
+	//Retorna o id do super nó
+	rw.WriteString(fmt.Sprintf("ID:%v\n", superNodeID))
+	rw.Flush()
+	id := superNodeID
+	superNodeID += 1
+	str, _ = rw.ReadString('\n') //Recebe uma mensagem da stream
+	fmt.Println(str)
+	//Recebe o ack
+	if str == "ACK\n" {
+		superNodes[id].registrado = true
+		fmt.Println("ACK recebido\n")
+	}
+	//TODO: adicionar o readStream
+}
+
+//Receberá as mensagens da stream
+func readStream(rw *bufio.ReadWriter) {
+	for {
+		str, _ := rw.ReadString('\n')
+
+		if str == "" {
+			return
+		}
+		if str != "\n" {
+			ret := ""
+			//Separa a entrada por ":"
+			//0 = id, 1 = protocolo, 2 = informação adicional
+			splits := strings.Split(str, ":")
+			id, _ := strconv.Atoi(splits[0])
+			switch splits[1] {
+				//Retorna informação de roteamento dos outros super nós
+			case "Roteamento":
+				for i := 0; i < len(superNodes); i++ {
+					if i != id {
+						ret = ret + fmt.Sprintf("%v:%s\n", i, superNodes[id].addr)
+					}
+				}
+				superNodes[id].rw.WriteString(ret)
+			}
+		}
 	}
 }
+
+//func writeStream(rw *bufio.ReadWriter) { }

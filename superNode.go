@@ -6,6 +6,8 @@ import (
 	"flag"
 	"bufio"
 	"log"
+	"strconv"
+	"strings"
 	//Libp2p
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -15,7 +17,8 @@ import (
 
 	"github.com/multiformats/go-multiaddr"
 )
-
+//Guardar informações sobre outros nós
+var superNodesAddr []string
 //Cria um host usando o libp2p com a porta específicada
 func makeHost(port int) host.Host {
 	host, err := libp2p.New(libp2p.ListenAddrStrings(fmt.Sprintf("/ip4/127.0.0.1/tcp/%d", port)))
@@ -36,7 +39,7 @@ func main() {
 	dest := flag.String("d", "", "destinatário")  //Destinatário da conexão
 	flag.Parse()
 
-	//Caso não aja destinatário o host é criado e espera conexão
+	//Caso não aja destinatário retorna
 	if *dest == "" {
 		fmt.Println("Informe o destinatário")
 		
@@ -52,6 +55,27 @@ func main() {
 		}
 		rw.WriteString(fmt.Sprintf("/ip4/127.0.0.1/tcp/%v/p2p/%s\n", *port, host.ID())) //Manda uma mensagem pela stream para o outro host
 		rw.Flush()
+		//Lê a resposta do mestre
+		str, _ := rw.ReadString('\n') 
+		aux := strings.Split(str, ":")
+		ID, err := strconv.Atoi(aux[1])
+		//Devolve o ACK
+		rw.WriteString(fmt.Sprintf("ACK\n"))
+		rw.Flush()
+		//Lê quando estiver finalizado
+		str, _ = rw.ReadString('\n')
+		fmt.Println(str)
+		if str != "\n" {
+			//Pede informação sobre outros nós
+			rw.WriteString(fmt.Sprintf("%v:Roteamento\n", ID))
+			str1, _ := rw.ReadString('\n')
+			aux = strings.Split(str1, "\n")
+
+			for _, it := range aux {
+				superNodesAddr = append(superNodesAddr, it)
+			}
+			fmt.Println("Finalizado\n")
+		}
 		select {} //Loop infinito
 	}
 	
