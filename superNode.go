@@ -19,9 +19,28 @@ import (
 
 	"github.com/multiformats/go-multiaddr"
 )
-
 //Guardar informações sobre outros nós
-var superNodesAddr []string
+type serverNode struct{
+	addr   string
+	stream network.Stream
+	rw     *bufio.ReadWriter
+	conectado bool
+}
+
+type superNode struct{
+	addr   string
+	stream network.Stream
+	rw     *bufio.ReadWriter
+	serverNodes map[int]serverNode
+	conectado bool
+}
+//Guardar informações sobre outros nós
+var superNodes map[int]superNode
+var ID int
+var servidorTerminado bool
+var isPrinc bool
+var servRec int
+var servID int
 
 //Cria um host usando o libp2p com a porta específicada
 func makeHost(port int) host.Host {
@@ -73,7 +92,9 @@ func main() {
 			log.Println(err)
 			return
 		}
-
+		servidorTerminado = false
+		isPrinc = true
+		servRec = 0
 		startHost(ctx, host, streamHandler)
 		select {} //Loop infinito
 	}
@@ -118,7 +139,10 @@ func startAndConnect(ctx context.Context, host host.Host, destination string, po
 	//Lê a resposta do mestre
 	str, _ := rw.ReadString('\n')
 	aux := strings.Split(str, ":")
-	ID, err := strconv.Atoi(aux[1][:len(aux[1])-1])
+	ID, err = strconv.Atoi(aux[1][:len(aux[1])-1])
+	superNodes[ID].addr = fmt.Sprintf("/ip4/127.0.0.1/tcp/%v/p2p/%s\n", port, host.ID())
+	superNodes[ID].conectado = true
+	servID = ID * 2
 	fmt.Println(aux[1], ID)
 	//Devolve o ACK
 	rw.WriteString(fmt.Sprintf("ACK\n"))
@@ -134,7 +158,10 @@ func startAndConnect(ctx context.Context, host host.Host, destination string, po
 		aux = strings.Split(str1, "|")
 		fmt.Println(aux)
 		for _, it := range aux {
-			superNodesAddr = append(superNodesAddr, it)
+			straux = strings.Split(it, ":")
+			idaux, err := strconv.Atoi(straux[0])
+			superNodes[idaux].addr = append(superNodesAddr, it)
+			superNodes[idaux].conectado = false
 		}
 		fmt.Println(superNodesAddr)
 	}
@@ -146,36 +173,79 @@ func startAndConnect(ctx context.Context, host host.Host, destination string, po
 func streamHandler(stream network.Stream) {
 	// Cria uma buffered stream para que ler e escrever sejam não bloqueantes
 	rw := bufio.NewReadWriter(bufio.NewReader(stream), bufio.NewWriter(stream))
-	//hash := sha1.New()
-	//SHA-1 Para o nó servidor
-	sha1Key, err := generateLocalSHA1Key()
-	if err != nil {
-		log.Println(err)
-		return nil, err
-	}
-	rw.WriteString(fmt.Sprintf("Registro:%s\n", sha1Key))
-	rw.Flush()
-
-	str, _ := rw.ReadString('\n')
-	if str == "ACK\n" {
-		log.Println("recebeu")
-
-	}
-	//Mensagem para servidor
-	rw.WriteString("id:sha1\n")
-
 	str, _ := rw.ReadString("\n")
-	if str == "ACK\n" {
-		//ack recebido
+	splits := strings.Split(str, ":")
+	switch splits[0] {
+	case "server":
+		//hash := sha1.New()
+		//SHA-1 Para o nó servidor
+		sha1Key, err := generateLocalSHA1Key()
+		if err != nil {
+			log.Println(err)
+			return nil, err
+		}
+		rw.WriteString(fmt.Sprintf("Registro:%s\n", sha1Key))
+		rw.Flush()
+
+		str, _ := rw.ReadString('\n')
+		if str == "ACK\n" {
+			log.Println("recebeu")
+
+		}
+		msg := fmt.Sprintf("%v:%s\n", servID, sha1Key)
+		superNodes[ID].serverNodes[servID].addr := fmt.Sprintf("%s", str)
+		superNodes[ID].serverNodes[servID].stream := stream
+		superNodes[ID].serverNodes[servID].rw := rw
+		superNodes[ID].serverNodes[servID].conectado := true
+		rw.WriteString(msg)
+		rw.Flush()
+		msg := fmt.Sprintf("%v:NewServer:%v|%s\n", ID, servID, str)
+		servID += 1
+		str, _ := rw.ReadString("\n")
+		if str == "ACK\n" {	
+			//Broadcast informações
+			
+			broadCast(stm.Sprintf(msg))
+		}
+	case "super":
+		idaux, _ := strconv.Atoi(splits[1][:len(splits[1])-1])
+		superNodes[idaux].stream = stream
+		superNodes[idaux].rw = rw
+		superNodes[idaux].conectado = true
 	}
-	//Broadcast informações
-	broadCast(stm.Sprintf("aa"))
-	//Caso menor id envie terminado
-	go readStream(rw)
+
+
+go readStream(rw)
 }
 
 func readStream(rw *bufio.ReadWriter) {
+	for {
+		str, _ := rw.ReadString("\n")
+		if str == "Terminado\n" {
+			servidorTerminado = true
+			return
+		}
+		splits := strings.Split(str, ":")
+		id, _ := strconv.Atoi(splits[0])
 
+		switch splits[1] {
+		case "NewServer":
+			splitaux := strings.Split(splits[2], "|")
+			servid, _ := strconv.Atoi(splitaux[0])
+			superNodes[id].serverNodes[servid].addr := splits[2]
+			superNodes[id].serverNodes[servid].conectado := true
+			if id < ID && !servidorTerminado && isPrinc{
+				isPrinc = false
+			}
+			servRec += 1
+			if servRec >= 5 && isPrinc && !servidorTerminado{
+				broadCast("Terminado\n")
+			}
+		
+		case "DelSever":
+			//deletar
+		}
+	}
 }
 
 func broadCast(msg string) {
