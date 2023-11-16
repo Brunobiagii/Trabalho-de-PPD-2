@@ -8,7 +8,6 @@ import (
 	"log"
 	"strconv"
 	"strings"
-	"crypto/sha1"
 	//Libp2p
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -18,9 +17,7 @@ import (
 
 	"github.com/multiformats/go-multiaddr"
 )
-//Guardar informações sobre outros nós
-var superNodesAddr []string
-//Cria um host usando o libp2p com a porta específicada
+
 func makeHost(port int) host.Host {
 	host, err := libp2p.New(libp2p.ListenAddrStrings(fmt.Sprintf("/ip4/127.0.0.1/tcp/%d", port)))
 	if err != nil {
@@ -54,15 +51,8 @@ func main() {
 			log.Println(err)
 			return
 		}
-
-		startHost(ctx, host, streamHandler)
 		select {} //Loop infinito
 	}
-	
-}
-
-func startHost(ctx context.Context, host host.Host, streamHandler network.StreamHandler){
-	host.SetStreamHandler("/ola/1.0.0", streamHandler)
 }
 
 //Cria uma stream entre os dois hosts
@@ -104,52 +94,6 @@ func startAndConnect(ctx context.Context, host host.Host, destination string, po
 	//Devolve o ACK
 	rw.WriteString(fmt.Sprintf("ACK\n"))
 	rw.Flush()
-	//Lê quando estiver finalizado
-	str, _ = rw.ReadString('\n')
-	if str != "\n" {
-		fmt.Println(str)
-		//Pede informação sobre outros nós
-		rw.WriteString(fmt.Sprintf("%v:Roteamento\n", ID))
-		rw.Flush()
-		str1, _ := rw.ReadString('\n')
-		aux = strings.Split(str1, "|")
-		fmt.Println(aux)
-		for _, it := range aux {
-			superNodesAddr = append(superNodesAddr, it)
-		}
-		fmt.Println(superNodesAddr)
-	}
 
 	return rw, nil
-}
-
-//Função que irá ser chamada quando o host for conectado a uma stream
-func streamHandler(stream network.Stream) {
-	// Cria uma buffered stream para que ler e escrever sejam não bloqueantes
-	rw := bufio.NewReadWriter(bufio.NewReader(stream), bufio.NewWriter(stream))
-	//hash := sha1.New()
-	//SHA-1 Para o nó servidor
-	
-	//Mensagem para servidor
-	rw.WriteString("id:sha1\n")
-
-	str, _ := rw.ReadString("\n")
-	if str == "ACK\n" {
-		//ack recebido
-	}
-	//Broadcast informações
-	broadCast(stm.Sprintf("aa"))
-	//Caso menor id envie terminado
-	go readStream(rw)
-}
-
-func readStream(rw *bufio.ReadWriter) {
-	
-}
-
-func broadCast(msg string) {
-	for i := 0; i < len(superNodes); i++ {
-		superNodes[i].rw.WriteString(msg)
-		superNodes[i].rw.Flush()
-	}
 }
