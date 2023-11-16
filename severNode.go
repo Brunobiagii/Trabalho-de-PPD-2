@@ -84,7 +84,7 @@ func startAndConnect(ctx context.Context, host host.Host, destination string, po
 	// Cria uma buffered stream para que ler e escrever sejam não bloqueantes
 	rw := bufio.NewReadWriter(bufio.NewReader(stream), bufio.NewWriter(stream))
 
-	rw.WriteString(fmt.Sprintf("/ip4/127.0.0.1/tcp/%v/p2p/%s\n", port, host.ID())) //Manda uma mensagem pela stream para o outro host
+	rw.WriteString(fmt.Sprintf("server:/ip4/127.0.0.1/tcp/%v/p2p/%s\n", port, host.ID())) //Manda uma mensagem pela stream para o outro host
 	rw.Flush()
 	//Lê a resposta do mestre
 	str, _ := rw.ReadString('\n') 
