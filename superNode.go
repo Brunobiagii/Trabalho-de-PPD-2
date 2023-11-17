@@ -3,12 +3,16 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
+	"crypto/sha1"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"log"
 	"net"
 	"strconv"
 	"strings"
+	"time"
 
 	//Libp2p
 	"github.com/libp2p/go-libp2p"
@@ -19,30 +23,32 @@ import (
 
 	"github.com/multiformats/go-multiaddr"
 )
+
 //Guardar informações sobre outros nós
-type serverNode struct{
-	addr   string
-	stream network.Stream
-	rw     *bufio.ReadWriter
+type serverNode struct {
+	addr      string
+	stream    network.Stream
+	rw        *bufio.ReadWriter
 	conectado bool
 }
 
-type superNode struct{
-	addr   string
-	stream network.Stream
-	rw     *bufio.ReadWriter
+type superNode struct {
+	addr        string
+	stream      network.Stream
+	rw          *bufio.ReadWriter
 	serverNodes map[int]*serverNode
-	conectado bool
+	conectado   bool
 }
+
 //Guardar informações sobre outros nós
 var superNodes map[int]*superNode
-var clients    map[int]*serverNode
-var ID         int
+var clients map[int]*serverNode
+var ID int
 var servidorTerminado bool
-var isPrinc    bool
-var servRec    int
-var servID     int
-var HOST       host.Host
+var isPrinc bool
+var servRec int
+var servID int
+var HOST host.Host
 
 //Cria um host usando o libp2p com a porta específicada
 func makeHost(port int) host.Host {
@@ -185,7 +191,7 @@ func streamHandler(stream network.Stream) {
 		sha1Key, err := generateLocalSHA1Key()
 		if err != nil {
 			log.Println(err)
-			return 
+			return
 		}
 		rw.WriteString(fmt.Sprintf("Registro:%s\n", sha1Key))
 		rw.Flush()
@@ -203,9 +209,9 @@ func streamHandler(stream network.Stream) {
 		msg = fmt.Sprintf("%v:NewServer:%v|%s\n", ID, servID, str)
 		servID += 1
 		str, _ = rw.ReadString('\n')
-		if str == "ACK\n" {	
+		if str == "ACK\n" {
 			//Broadcast informações
-			
+
 			broadCast(fmt.Sprintf(msg))
 		}
 	case "super":
@@ -217,10 +223,8 @@ func streamHandler(stream network.Stream) {
 		rw.Flush()
 	}
 
-
 	go readStream(rw)
 }
-
 
 func readStream(rw *bufio.ReadWriter) {
 	for {
@@ -240,13 +244,13 @@ func readStream(rw *bufio.ReadWriter) {
 				servRec += 1
 			}
 			superNodes[id].serverNodes[servid] = &serverNode{addr: splits[2], conectado: false}
-			if id < ID && !servidorTerminado && isPrinc{
+			if id < ID && !servidorTerminado && isPrinc {
 				isPrinc = false
 			}
-			if servRec >= 5 && isPrinc && !servidorTerminado{
+			if servRec >= 5 && isPrinc && !servidorTerminado {
 				broadCast("Terminado\n")
 			}
-		
+
 		case "DelSever":
 			//deletar
 		}
@@ -254,12 +258,12 @@ func readStream(rw *bufio.ReadWriter) {
 }
 
 func broadCast(msg string) {
-	for i := 0; i < len(superNodes); i++ {
-		if !superNodes[i].conectado {
+	for i, node := range superNodes {
+		if !node.conectado && i != ID {
 			ConnectSuper(HOST, i)
 		}
-		superNodes[i].rw.WriteString(msg)
-		superNodes[i].rw.Flush()
+		node.rw.WriteString(msg)
+		node.rw.Flush()
 	}
 }
 
@@ -303,6 +307,29 @@ func ConnectSuper(host host.Host, dest int) {
 	go readStream(rw)
 }
 
-func generateLocalSHA1Key() (string, error){
-	return "abc123", nil
+func generateLocalSHA1Key() (string, error) {
+	// Generate a random string
+	randomBytes := make([]byte, 8)
+	_, err := rand.Read(randomBytes)
+	if err != nil {
+		return "", err
+	}
+
+	randomString := hex.EncodeToString(randomBytes)
+
+	// Concatenate timestamp and random string
+	timestamp := time.Now().Unix()
+	data := fmt.Sprintf("%d%s", timestamp, randomString)
+
+	// Calculate SHA-1 hash
+	hash := sha1.New()
+	_, err = hash.Write([]byte(data))
+	if err != nil {
+		return "", err
+	}
+
+	// Convert the hash to a hex string
+	sha1Key := hex.EncodeToString(hash.Sum(nil))
+
+	return sha1Key, nil
 }
