@@ -31,17 +31,18 @@ type superNode struct{
 	addr   string
 	stream network.Stream
 	rw     *bufio.ReadWriter
-	serverNodes map[int]serverNode
+	serverNodes map[int]*serverNode
 	conectado bool
 }
 //Guardar informações sobre outros nós
-var superNodes map[int]superNode
-var ID int
+var superNodes map[int]*superNode
+var clients    map[int]*serverNode
+var ID         int
 var servidorTerminado bool
-var isPrinc bool
-var servRec int
-var servID int
-var HOST host.Host
+var isPrinc    bool
+var servRec    int
+var servID     int
+var HOST       host.Host
 
 //Cria um host usando o libp2p com a porta específicada
 func makeHost(port int) host.Host {
@@ -84,11 +85,11 @@ func main() {
 		fmt.Println("Informe o destinatário")
 
 	} else { //Caso aja destinatário se conecta à ele
-
+		superNodes = make(map[int]*superNode)
 		HOST = makeHost(*port + 1) //Cria o host
 		fmt.Printf("/ip4/127.0.0.1/tcp/%v/p2p/%s\n", *port, HOST.ID())
 
-		rw, err := startAndConnect(ctx, HOST, *dest, *port) //Se conecta ao outro host
+		_, err := startAndConnect(ctx, HOST, *dest, *port) //Se conecta ao outro host
 		if err != nil {
 			log.Println(err)
 			return
@@ -97,6 +98,7 @@ func main() {
 		isPrinc = true
 		servRec = 0
 		startHost(ctx, HOST, streamHandler)
+		log.Printf("use 'go run serverNode.go -d /ip4/127.0.0.1/tcp/%v/p2p/%s' para se conectar a esse host", *port, HOST.ID())
 		select {} //Loop infinito
 	}
 
@@ -108,7 +110,6 @@ func startHost(ctx context.Context, host host.Host, streamHandler network.Stream
 
 //Cria uma stream entre os dois hosts
 func startAndConnect(ctx context.Context, host host.Host, destination string, port int) (*bufio.ReadWriter, error) {
-	var supAux superNode
 	//Gera o multi address do destinatário
 	maddr, err := multiaddr.NewMultiaddr(destination)
 	if err != nil {
@@ -142,9 +143,8 @@ func startAndConnect(ctx context.Context, host host.Host, destination string, po
 	str, _ := rw.ReadString('\n')
 	aux := strings.Split(str, ":")
 	ID, err = strconv.Atoi(aux[1][:len(aux[1])-1])
-	supAux.addr = fmt.Sprintf("/ip4/127.0.0.1/tcp/%v/p2p/%s\n", port, host.ID())
-	supAux.conectado = true
-	superNodes[ID] = supAux
+	superNodes[ID] = &superNode{addr: fmt.Sprintf("/ip4/127.0.0.1/tcp/%v/p2p/%s\n", port, host.ID()), conectado: true}
+	superNodes[ID].serverNodes = make(map[int]*serverNode)
 	servID = ID * 2
 	fmt.Println(aux[1], ID)
 	//Devolve o ACK
@@ -163,9 +163,8 @@ func startAndConnect(ctx context.Context, host host.Host, destination string, po
 		for _, it := range aux {
 			straux := strings.Split(it, ":")
 			idaux, _ := strconv.Atoi(straux[0])
-			supAux.addr = it
-			supAux.conectado = false
-			superNodes[idaux] = supAux
+			superNodes[idaux] = &superNode{addr: it, conectado: false}
+			superNodes[idaux].serverNodes = make(map[int]*serverNode)
 		}
 		//fmt.Println(superNodes[idaux].addr)
 	}
@@ -186,7 +185,7 @@ func streamHandler(stream network.Stream) {
 		sha1Key, err := generateLocalSHA1Key()
 		if err != nil {
 			log.Println(err)
-			return nil, err
+			return 
 		}
 		rw.WriteString(fmt.Sprintf("Registro:%s\n", sha1Key))
 		rw.Flush()
@@ -197,19 +196,17 @@ func streamHandler(stream network.Stream) {
 
 		}
 		msg := fmt.Sprintf("%v:%s\n", servID, sha1Key)
-		superNodes[ID].serverNodes[servID].addr := fmt.Sprintf("%s", str)
-		superNodes[ID].serverNodes[servID].stream := stream
-		superNodes[ID].serverNodes[servID].rw := rw
-		superNodes[ID].serverNodes[servID].conectado := true
+
+		superNodes[ID].serverNodes[servID] = &serverNode{addr: fmt.Sprintf("%s", str), stream: stream, rw: rw, conectado: true}
 		rw.WriteString(msg)
 		rw.Flush()
-		msg := fmt.Sprintf("%v:NewServer:%v|%s\n", ID, servID, str)
+		msg = fmt.Sprintf("%v:NewServer:%v|%s\n", ID, servID, str)
 		servID += 1
-		str, _ := rw.ReadString("\n")
+		str, _ = rw.ReadString('\n')
 		if str == "ACK\n" {	
 			//Broadcast informações
 			
-			broadCast(stm.Sprintf(msg))
+			broadCast(fmt.Sprintf(msg))
 		}
 	case "super":
 		idaux, _ := strconv.Atoi(splits[1][:len(splits[1])-1])
@@ -227,7 +224,7 @@ func streamHandler(stream network.Stream) {
 
 func readStream(rw *bufio.ReadWriter) {
 	for {
-		str, _ := rw.ReadString("\n")
+		str, _ := rw.ReadString('\n')
 		if str == "Terminado\n" {
 			servidorTerminado = true
 			return
@@ -242,8 +239,7 @@ func readStream(rw *bufio.ReadWriter) {
 			if len(superNodes[id].serverNodes) == 0 {
 				servRec += 1
 			}
-			superNodes[id].serverNodes[servid].addr := splits[2]
-			superNodes[id].serverNodes[servid].conectado := false
+			superNodes[id].serverNodes[servid] = &serverNode{addr: splits[2], conectado: false}
 			if id < ID && !servidorTerminado && isPrinc{
 				isPrinc = false
 			}
@@ -271,13 +267,13 @@ func ConnectSuper(host host.Host, dest int) {
 	maddr, err := multiaddr.NewMultiaddr(superNodes[dest].addr)
 	if err != nil {
 		log.Println(err)
-		return nil, err
+		return
 	}
 	//Pega as informações do endereço do destinatário
 	info, err := peer.AddrInfoFromP2pAddr(maddr)
 	if err != nil {
 		log.Println(err)
-		return nil, err
+		return
 	}
 
 	//Adiciona o destinatário a lista de peers do host
@@ -287,7 +283,7 @@ func ConnectSuper(host host.Host, dest int) {
 	stream, err := host.NewStream(context.Background(), info.ID, "/ola/1.0.0")
 	if err != nil {
 		log.Println(err)
-		return nil, err
+		return
 	}
 	log.Println("Established connection to destination")
 
@@ -297,7 +293,7 @@ func ConnectSuper(host host.Host, dest int) {
 	rw.WriteString(fmt.Sprintf("super:%v\n", ID)) //Manda uma mensagem pela stream para o outro host
 	rw.Flush()
 
-	str, _ = rw.ReadString("\n")
+	str, _ := rw.ReadString('\n')
 	if str == "ACK\n" {
 		superNodes[dest].stream = stream
 		superNodes[dest].rw = rw
@@ -305,4 +301,8 @@ func ConnectSuper(host host.Host, dest int) {
 	}
 
 	go readStream(rw)
+}
+
+func generateLocalSHA1Key() (string, error){
+	return "abc123", nil
 }
